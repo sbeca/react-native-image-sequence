@@ -1,6 +1,7 @@
 package dk.madslee.imageSequence;
 
 import android.content.Context;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.AnimationDrawable;
@@ -20,6 +21,8 @@ import java.util.concurrent.RejectedExecutionException;
 public class RCTImageSequenceView extends ImageView {
     private Integer framesPerSecond = 24;
     private Boolean loop = true;
+    private Integer downsampleWidth = -1;
+    private Integer downsampleHeight = -1;
     private ArrayList<AsyncTask> activeTasks;
     private HashMap<Integer, Bitmap> bitmaps;
     private RCTResourceDrawableIdHelper resourceDrawableIdHelper;
@@ -50,9 +53,26 @@ public class RCTImageSequenceView extends ImageView {
             return this.loadBitmapByLocalResource(this.uri);
         }
 
-
         private Bitmap loadBitmapByLocalResource(String uri) {
-            return BitmapFactory.decodeResource(this.context.getResources(), resourceDrawableIdHelper.getResourceDrawableId(this.context, uri));
+            Resources res = this.context.getResources();
+            int resId = resourceDrawableIdHelper.getResourceDrawableId(this.context, uri);
+
+            if (downsampleWidth <= 0 || downsampleHeight <= 0) {
+                // Downsampling is not set so just decode normally
+                return BitmapFactory.decodeResource(res, resId);
+            }
+
+            // First decode with inJustDecodeBounds=true to check dimensions
+            final BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            BitmapFactory.decodeResource(res, resId, options);
+
+            // Calculate inSampleSize
+            options.inSampleSize = RCTImageSequenceView.calculateInSampleSize(options, downsampleWidth, downsampleHeight);
+
+            // Decode bitmap with inSampleSize set
+            options.inJustDecodeBounds = false;
+            return BitmapFactory.decodeResource(res, resId, options);
         }
 
         private Bitmap loadBitmapByExternalURL(String uri) {
@@ -88,6 +108,27 @@ public class RCTImageSequenceView extends ImageView {
         if (activeTasks.isEmpty()) {
             setupAnimationDrawable();
         }
+    }
+
+    public static int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
+        // Raw height and width of image
+        final int height = options.outHeight;
+        final int width = options.outWidth;
+        int inSampleSize = 1;
+
+        if (height > reqHeight || width > reqWidth) {
+            final int halfHeight = height / 2;
+            final int halfWidth = width / 2;
+
+            // Calculate the largest inSampleSize value that is a power of 2 and keeps both
+            // height and width larger than the requested height and width.
+            while ((halfHeight / inSampleSize) >= reqHeight
+                    && (halfWidth / inSampleSize) >= reqWidth) {
+                inSampleSize *= 2;
+            }
+        }
+
+        return inSampleSize;
     }
 
     public void setImages(ArrayList<String> uris) {
@@ -130,6 +171,14 @@ public class RCTImageSequenceView extends ImageView {
         if (isLoaded()) {
             setupAnimationDrawable();
         }
+    }
+
+    public void setDownsampleWidth(Integer downsampleWidth) {
+        this.downsampleWidth = downsampleWidth;
+    }
+
+    public void setDownsampleHeight(Integer downsampleHeight) {
+        this.downsampleHeight = downsampleHeight;
     }
 
     private boolean isLoaded() {
